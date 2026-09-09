@@ -20,6 +20,13 @@
         android:layout_height="wrap_content"
         android:text="Verificar mi ubicación" />
 
+    <Button
+        android:id="@+id/btnMockNY"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Simular Nueva York" />
+
     <TextView
         android:id="@+id/txtResult"
         android:layout_width="match_parent"
