@@ -1,5 +1,6 @@
 package com.example.mockgpsdemo
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,96 +8,75 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.location.Criteria
 import android.location.Location
 import android.location.LocationManager
-import android.location.provider.ProviderProperties
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 
 class MockLocationService : Service() {
 
-    private lateinit var locationManager: LocationManager
-    private val providers = listOf(
-        LocationManager.GPS_PROVIDER,
-        LocationManager.NETWORK_PROVIDER
-    )
+    private lateinit var fused: FusedLocationProviderClient
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
+    private val pushIntervalMs = 250L
 
     private val pushRunnable = object : Runnable {
         override fun run() {
             if (running) {
                 pushMockLocation()
-                handler.postDelayed(this, 1000L)
+                handler.postDelayed(this, pushIntervalMs)
             }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        fused = LocationServices.getFusedLocationProviderClient(this)
     }
 
+    @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
         startForegroundNotification()
-        setupProviders()
         running = true
-        pushMockLocation()
-        handler.postDelayed(pushRunnable, 1000L)
+        // Inyecta directo en el motor Fused (la capa que lee el detector),
+        // eliminando la carrera con la cache de la ubicacion real.
+        fused.setMockMode(true)
+            .addOnSuccessListener {
+                pushMockLocation()
+                handler.postDelayed(pushRunnable, pushIntervalMs)
+            }
         return START_STICKY
     }
 
-    private fun setupProviders() {
-        for (p in providers) {
-            try {
-                locationManager.removeTestProvider(p)
-            } catch (_: Exception) {
-            }
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val props = ProviderProperties.Builder()
-                        .setAccuracy(ProviderProperties.ACCURACY_FINE)
-                        .setPowerUsage(ProviderProperties.POWER_USAGE_LOW)
-                        .build()
-                    locationManager.addTestProvider(p, props)
-                } else {
-                    @Suppress("DEPRECATION")
-                    locationManager.addTestProvider(
-                        p, false, false, false, false,
-                        false, true, true,
-                        Criteria.POWER_LOW, Criteria.ACCURACY_FINE
-                    )
-                }
-                locationManager.setTestProviderEnabled(p, true)
-            } catch (_: Exception) {
+    @SuppressLint("MissingPermission")
+    private fun pushMockLocation() {
+        val loc = Location(LocationManager.GPS_PROVIDER).apply {
+            latitude = NY_LAT
+            longitude = NY_LON
+            accuracy = 5f
+            altitude = 10.0
+            bearing = 0f
+            speed = 0f
+            time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                bearingAccuracyDegrees = 0.1f
+                verticalAccuracyMeters = 0.1f
+                speedAccuracyMetersPerSecond = 0.01f
             }
         }
-    }
-
-    private fun pushMockLocation() {
-        for (p in providers) {
-            try {
-                val loc = Location(p).apply {
-                    latitude = NY_LAT
-                    longitude = NY_LON
-                    accuracy = 5f
-                    altitude = 10.0
-                    bearing = 0f
-                    speed = 0f
-                    time = System.currentTimeMillis()
-                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-                }
-                locationManager.setTestProviderLocation(p, loc)
-            } catch (_: Exception) {
-            }
+        try {
+            fused.setMockLocation(loc)
+        } catch (_: Exception) {
         }
     }
 
@@ -124,16 +104,15 @@ class MockLocationService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     override fun onDestroy() {
         super.onDestroy()
         running = false
         handler.removeCallbacks(pushRunnable)
-        for (p in providers) {
-            try {
-                locationManager.setTestProviderEnabled(p, false)
-                locationManager.removeTestProvider(p)
-            } catch (_: Exception) {
-            }
+        // Devuelve el Fused a modo normal: restaura la ubicacion real.
+        try {
+            fused.setMockMode(false)
+        } catch (_: Exception) {
         }
     }
 
