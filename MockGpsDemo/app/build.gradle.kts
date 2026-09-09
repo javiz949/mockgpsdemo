@@ -4,18 +4,24 @@ plugins {
 }
 
 android {
-    namespace = "com.example.mockgpsdemo"
+    namespace = "com.example.mockgpsdemo.hook"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.mockgpsdemo"
-        minSdk = 24
+        applicationId = "com.example.mockgpsdemo.hook"
+
+        // LSPatch itself targets Android 9+.
+        minSdk = 28
         targetSdk = 34
+
         versionCode = 1
         versionName = "1.0"
     }
 
     buildTypes {
+        debug {
+            isMinifyEnabled = false
+        }
         release {
             isMinifyEnabled = false
         }
@@ -32,6 +38,7 @@ android {
 }
 
 dependencies {
-    implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("androidx.core:core-ktx:1.13.1")
+    // IMPORTANT: compileOnly prevents XposedBridge classes from being packaged
+    // inside the module APK. LSPatch supplies them at runtime.
+    compileOnly("de.robv.android.xposed:api:82")
 }
