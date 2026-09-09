@@ -36,7 +36,13 @@ class MainActivity : Activity() {
     private val NY_LAT = 40.7128
     private val NY_LON = -74.0060
 
-    private val mockProvider = LocationManager.GPS_PROVIDER
+    // Se inyecta en TODOS los proveedores para que el "fused location"
+    // de Google Play Services devuelva Nueva York de forma consistente,
+    // no solo la primera lectura.
+    private val mockProviders = listOf(
+        LocationManager.GPS_PROVIDER,
+        LocationManager.NETWORK_PROVIDER
+    )
     private var mocking = false
     private val handler = Handler(Looper.getMainLooper())
     private val pushRunnable = object : Runnable {
@@ -102,28 +108,30 @@ class MainActivity : Activity() {
     @SuppressLint("MissingPermission")
     private fun startMockNewYork() {
         try {
-            // Limpia cualquier proveedor de prueba previo
-            try {
-                locationManager.removeTestProvider(mockProvider)
-            } catch (_: Exception) {
-            }
+            for (provider in mockProviders) {
+                // Limpia cualquier proveedor de prueba previo
+                try {
+                    locationManager.removeTestProvider(provider)
+                } catch (_: Exception) {
+                }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val props = ProviderProperties.Builder()
-                    .setAccuracy(ProviderProperties.ACCURACY_FINE)
-                    .setPowerUsage(ProviderProperties.POWER_USAGE_LOW)
-                    .build()
-                locationManager.addTestProvider(mockProvider, props)
-            } else {
-                @Suppress("DEPRECATION")
-                locationManager.addTestProvider(
-                    mockProvider,
-                    false, false, false, false,
-                    false, true, true,
-                    Criteria.POWER_LOW, Criteria.ACCURACY_FINE
-                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val props = ProviderProperties.Builder()
+                        .setAccuracy(ProviderProperties.ACCURACY_FINE)
+                        .setPowerUsage(ProviderProperties.POWER_USAGE_LOW)
+                        .build()
+                    locationManager.addTestProvider(provider, props)
+                } else {
+                    @Suppress("DEPRECATION")
+                    locationManager.addTestProvider(
+                        provider,
+                        false, false, false, false,
+                        false, true, true,
+                        Criteria.POWER_LOW, Criteria.ACCURACY_FINE
+                    )
+                }
+                locationManager.setTestProviderEnabled(provider, true)
             }
-            locationManager.setTestProviderEnabled(mockProvider, true)
 
             mocking = true
             btnMock.text = "Detener simulación"
@@ -156,30 +164,34 @@ class MainActivity : Activity() {
 
     @SuppressLint("MissingPermission")
     private fun pushMockLocation() {
-        try {
-            val loc = Location(mockProvider).apply {
-                latitude = NY_LAT
-                longitude = NY_LON
-                accuracy = 5f
-                altitude = 10.0
-                bearing = 0f
-                speed = 0f
-                time = System.currentTimeMillis()
-                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        for (provider in mockProviders) {
+            try {
+                val loc = Location(provider).apply {
+                    latitude = NY_LAT
+                    longitude = NY_LON
+                    accuracy = 5f
+                    altitude = 10.0
+                    bearing = 0f
+                    speed = 0f
+                    time = System.currentTimeMillis()
+                    elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+                }
+                locationManager.setTestProviderLocation(provider, loc)
+            } catch (_: Exception) {
+                // Si el provider fue removido por el sistema, se ignora
             }
-            locationManager.setTestProviderLocation(mockProvider, loc)
-        } catch (_: Exception) {
-            // Si el provider fue removido por el sistema, detenemos limpiamente
         }
     }
 
     private fun stopMocking() {
         mocking = false
         handler.removeCallbacks(pushRunnable)
-        try {
-            locationManager.setTestProviderEnabled(mockProvider, false)
-            locationManager.removeTestProvider(mockProvider)
-        } catch (_: Exception) {
+        for (provider in mockProviders) {
+            try {
+                locationManager.setTestProviderEnabled(provider, false)
+                locationManager.removeTestProvider(provider)
+            } catch (_: Exception) {
+            }
         }
         btnMock.text = "Simular Nueva York"
         txtResult.text = "Simulación detenida. Ubicación real restaurada."
@@ -189,9 +201,11 @@ class MainActivity : Activity() {
         super.onDestroy()
         if (mocking) {
             handler.removeCallbacks(pushRunnable)
-            try {
-                locationManager.removeTestProvider(mockProvider)
-            } catch (_: Exception) {
+            for (provider in mockProviders) {
+                try {
+                    locationManager.removeTestProvider(provider)
+                } catch (_: Exception) {
+                }
             }
         }
     }
